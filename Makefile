@@ -44,3 +44,15 @@ sync:
 	@echo "Uploading utils/ folder to S3..."
 	aws s3 sync utils/ s3://data-lake-ms/utils/
 	@echo "✅ Upload complete!"
+
+# Update Airflow AWS Connection
+# Usage: make set-aws-conn
+set-aws-conn:
+	@echo "Deleting old connection if it exists..."
+	docker exec -t datalake-aws-airflow-webserver-1 airflow connections delete aws_default || true
+	@echo "Creating new aws_default connection..."
+	docker exec -t datalake-aws-airflow-webserver-1 airflow connections add aws_default \
+		--conn-type 'aws' \
+		--conn-login '$(AWS_ACCESS_KEY_ID)' \
+		--conn-password '$(AWS_SECRET_ACCESS_KEY)' \
+		--conn-extra '{"region_name": "eu-north-1"}'
