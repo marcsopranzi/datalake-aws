@@ -17,6 +17,14 @@ JOB_FLOW_OVERRIDES = {
     "Name": "Airflow-Transient-MySQL-Ingestion",
     "ReleaseLabel": "emr-6.15.0",
     "LogUri": "s3://data-lake-ms/logs/",
+    "BootstrapActions": [
+        {
+            "Name": "Install Python Dependencies",
+            "ScriptBootstrapAction": {
+                "Path": "s3://data-lake-ms/utils/bootstrap.sh"
+            }
+        }
+    ],
     "Instances": {
         "InstanceGroups": [
             {"Name": "Master node", "Market": "ON_DEMAND", "InstanceRole": "MASTER", "InstanceType": "m5.xlarge", "InstanceCount": 1},
@@ -24,8 +32,8 @@ JOB_FLOW_OVERRIDES = {
         ],
         "KeepJobFlowAliveWhenNoSteps": False, 
         "Ec2SubnetId": "subnet-09e4f6118a906642b",     
-        "EmrManagedMasterSecurityGroup": "sg-0ea61c088268cf9ea", 
-        "EmrManagedSlaveSecurityGroup": "sg-0ea61c088268cf9ea"   
+        "EmrManagedMasterSecurityGroup": "sg-0e94a00b1082babc3", 
+        "EmrManagedSlaveSecurityGroup": "sg-0e94a00b1082babc3"   
     },
     "JobFlowRole": "emr_ec2_profile_poc",     
     "ServiceRole": "emr_service_role_poc",    
@@ -40,7 +48,7 @@ JOB_FLOW_OVERRIDES = {
                     "--deploy-mode", "cluster",
                     "--packages", "org.postgresql:postgresql:42.6.0,mysql:mysql-connector-java:8.0.33",
                     "s3://data-lake-ms/utils/etl.py",
-                    "mysql_db"  
+                    "mysql_source"  
                 ]
             }
         }
