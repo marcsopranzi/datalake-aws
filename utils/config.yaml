@@ -1,0 +1,31 @@
+minio:
+  endpoint: "http://localhost:9000"
+  access_key: "minio"
+  secret_key: "minio123"
+  bucket: "data-lake-ms"
+
+sources:
+  - name: "sqlite_source"
+    url: "jdbc:sqlite:/Users/isamu/Library/DBeaverData/workspace6/.metadata/sample-database-sqlite-1/Chinook.db"
+    driver: "org.sqlite.JDBC"
+    tables:
+      - name: "Customer"
+        pii_columns: ["Email"]
+
+  - name: "postgres_source"
+    url: "jdbc:postgresql://localhost:5041/transactional_db"
+    driver: "org.postgresql.Driver"
+    user: "${DB_USER_POSTGRES}"
+    password: "${DB_PASS_POSTGRES}"
+    tables:
+      - name: "production.vendors"
+        pii_columns: ["name"]
+
+  - name: "mysql_source"
+    url: "jdbc:mysql://localhost:3307/source_db?allowPublicKeyRetrieval=true&useSSL=false"
+    driver: "com.mysql.cj.jdbc.Driver"
+    user: "${DB_USER_MYSQL}"
+    password: "${DB_PASS_MYSQL}"
+    tables:
+      - name: "vendors"
+        pii_columns: ["name"]
