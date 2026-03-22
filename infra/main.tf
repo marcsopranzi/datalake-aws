@@ -119,17 +119,17 @@ resource "aws_db_instance" "postgres_poc" {
 }
 
 # 5. Redshift Cluster (Upgraded to RA3)
-resource "aws_redshift_cluster" "redshift_poc" {
-  cluster_identifier  = "poc-redshift"
-  database_name       = "datalake"
-  master_username     = "dbadmin"         
-  master_password     = "SuperSecret123!"
-  node_type           = "ra3.xlplus"      # <--- The Redshift fix!
-  cluster_type        = "single-node"
-  skip_final_snapshot = true
-  publicly_accessible = true
-  vpc_security_group_ids = [aws_security_group.db_sg.id]
-}
+# resource "aws_redshift_cluster" "redshift_poc" {
+#   cluster_identifier  = "poc-redshift"
+#   database_name       = "datalake"
+#   master_username     = "dbadmin"         
+#   master_password     = "SuperSecret123!"
+#   node_type           = "ra3.xlplus"      # <--- The Redshift fix!
+#   cluster_type        = "single-node"
+#   skip_final_snapshot = true
+#   publicly_accessible = true
+#   vpc_security_group_ids = [aws_security_group.db_sg.id]
+# }
 
 # 6. IAM Roles for EMR
 resource "aws_iam_role" "emr_service_role" {
@@ -151,6 +151,14 @@ resource "aws_iam_role" "emr_ec2_role" {
     Statement = [{ Action = "sts:AssumeRole", Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" } }]
   })
 }
+
+# Give the EMR EC2 instances full access to S3 so they can write the Parquet files and Logs
+resource "aws_iam_role_policy_attachment" "emr_s3_access" {
+  role       = aws_iam_role.emr_ec2_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+}
+
+
 resource "aws_iam_role_policy_attachment" "emr_ec2_attach" {
   role       = aws_iam_role.emr_ec2_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceforEC2Role"
@@ -160,30 +168,7 @@ resource "aws_iam_instance_profile" "emr_ec2_profile" {
   role = aws_iam_role.emr_ec2_role.name
 }
 
-# 7. EMR Cluster
-resource "aws_emr_cluster" "cluster" {
-  name          = "poc-datalake-spark"
-  release_label = "emr-6.15.0"
-  applications  = ["Spark", "Hadoop"]
-  service_role  = aws_iam_role.emr_service_role.arn
 
-  ec2_attributes {
-    subnet_id                         = tolist(data.aws_subnets.default.ids)[0]
-    emr_managed_master_security_group = aws_security_group.emr_sg.id  # <--- The EMR fix!
-    emr_managed_slave_security_group  = aws_security_group.emr_sg.id
-    instance_profile                  = aws_iam_instance_profile.emr_ec2_profile.arn
-  }
-
-  master_instance_group {
-    instance_type  = "m5.xlarge"
-    instance_count = 1
-  }
-
-  core_instance_group {
-    instance_type  = "m5.xlarge"
-    instance_count = 1
-  }
-}
 
 # ==========================================
 # Outputs 
@@ -196,10 +181,28 @@ output "postgres_endpoint" {
   value = aws_db_instance.postgres_poc.endpoint
 }
 
-output "redshift_endpoint" {
-  value = aws_redshift_cluster.redshift_poc.endpoint
+# output "redshift_endpoint" {
+#   value = aws_redshift_cluster.redshift_poc.endpoint
+# }
+
+# output "emr_master_dns" {
+#   value = aws_emr_cluster.cluster.master_public_dns
+# }
+
+# --- IDs needed for your Airflow DAG ---
+
+output "emr_subnet_id" {
+  value = tolist(data.aws_subnets.default.ids)[0]
 }
 
-output "emr_master_dns" {
-  value = aws_emr_cluster.cluster.master_public_dns
+output "emr_security_group_id" {
+  value = aws_security_group.emr_sg.id
+}
+
+output "emr_service_role_name" {
+  value = aws_iam_role.emr_service_role.name
+}
+
+output "emr_ec2_profile_name" {
+  value = aws_iam_instance_profile.emr_ec2_profile.name
 }
