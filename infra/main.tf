@@ -9,6 +9,12 @@ terraform {
   }
 }
 
+variable "db_password" {
+  description = "The master password for the RDS databases"
+  type        = string
+  sensitive   = true # This hides it from Terraform terminal output!
+}
+
 provider "aws" {
   region = "eu-north-1" 
 }
@@ -25,7 +31,7 @@ data "aws_subnets" "default" {
   }
 }
 
-# 2a. Security Group for Databases (Open specific ports to your Mac)
+# 2a. Security Group for Databases
 resource "aws_security_group" "db_sg" {
   name        = "datalake-db-sg"
   description = "Allow DB traffic from anywhere, and internal EMR traffic"
@@ -44,12 +50,6 @@ resource "aws_security_group" "db_sg" {
     cidr_blocks = ["0.0.0.0/0"] # MySQL
   }
   ingress {
-    from_port   = 5439
-    to_port     = 5439
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Redshift
-  }
-  ingress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -63,7 +63,7 @@ resource "aws_security_group" "db_sg" {
   }
 }
 
-# 2b. Security Group for EMR (Strictly Port 22 to satisfy AWS safety rules)
+# 2b. Security Group for EMR
 resource "aws_security_group" "emr_sg" {
   name        = "datalake-emr-sg"
   description = "Allow SSH from anywhere, and internal EMR traffic"
@@ -97,7 +97,7 @@ resource "aws_db_instance" "mysql_poc" {
   engine_version       = "8.0"
   instance_class       = "db.t4g.micro"
   username             = "admin"
-  password             = "supersecret123" 
+  password             = var.db_password
   parameter_group_name = "default.mysql8.0"
   skip_final_snapshot  = true
   publicly_accessible  = true
@@ -112,24 +112,11 @@ resource "aws_db_instance" "postgres_poc" {
   engine_version       = "15"
   instance_class       = "db.t4g.micro"
   username             = "dbadmin"
-  password             = "supersecret123"
+  password             = var.db_password
   skip_final_snapshot  = true
   publicly_accessible  = true
   vpc_security_group_ids = [aws_security_group.db_sg.id]
 }
-
-# 5. Redshift Cluster (Upgraded to RA3)
-# resource "aws_redshift_cluster" "redshift_poc" {
-#   cluster_identifier  = "poc-redshift"
-#   database_name       = "datalake"
-#   master_username     = "dbadmin"         
-#   master_password     = "SuperSecret123!"
-#   node_type           = "ra3.xlplus"      # <--- The Redshift fix!
-#   cluster_type        = "single-node"
-#   skip_final_snapshot = true
-#   publicly_accessible = true
-#   vpc_security_group_ids = [aws_security_group.db_sg.id]
-# }
 
 # 6. IAM Roles for EMR
 resource "aws_iam_role" "emr_service_role" {
@@ -152,12 +139,11 @@ resource "aws_iam_role" "emr_ec2_role" {
   })
 }
 
-# Give the EMR EC2 instances full access to S3 so they can write the Parquet files and Logs
+# Give the EMR EC2 instances full access to S3
 resource "aws_iam_role_policy_attachment" "emr_s3_access" {
   role       = aws_iam_role.emr_ec2_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
 }
-
 
 resource "aws_iam_role_policy_attachment" "emr_ec2_attach" {
   role       = aws_iam_role.emr_ec2_role.name
@@ -168,7 +154,37 @@ resource "aws_iam_instance_profile" "emr_ec2_profile" {
   role = aws_iam_role.emr_ec2_role.name
 }
 
+# ==========================================
+# AWS Secrets Manager (Using your MANUAL Vault)
+# ==========================================
 
+# 1. Fetch the existing vault you made manually
+data "aws_secretsmanager_secret" "db_password" {
+  name = "db_password" # Must exactly match the name you typed in the AWS Console
+}
+
+# 2. Give EMR the "Key" to open your manual Vault
+resource "aws_iam_policy" "emr_secrets_policy" {
+  name        = "emr_secrets_policy_poc"
+  description = "Allow EMR to read the database password from Secrets Manager"
+  
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action   = "secretsmanager:GetSecretValue",
+        Effect   = "Allow",
+        Resource = data.aws_secretsmanager_secret.db_password.arn # <--- Uses the DATA block here
+      }
+    ]
+  })
+}
+
+# 3. Attach the Key to the EMR EC2 Profile
+resource "aws_iam_role_policy_attachment" "emr_secrets_attach" {
+  role       = aws_iam_role.emr_ec2_role.name
+  policy_arn = aws_iam_policy.emr_secrets_policy.arn
+}
 
 # ==========================================
 # Outputs 
@@ -181,16 +197,7 @@ output "postgres_endpoint" {
   value = aws_db_instance.postgres_poc.endpoint
 }
 
-# output "redshift_endpoint" {
-#   value = aws_redshift_cluster.redshift_poc.endpoint
-# }
-
-# output "emr_master_dns" {
-#   value = aws_emr_cluster.cluster.master_public_dns
-# }
-
 # --- IDs needed for your Airflow DAG ---
-
 output "emr_subnet_id" {
   value = tolist(data.aws_subnets.default.ids)[0]
 }
